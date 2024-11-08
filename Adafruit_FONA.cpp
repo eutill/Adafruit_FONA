@@ -385,6 +385,159 @@ uint8_t Adafruit_FONA::getRSSI(void) {
   return reply;
 }
 
+bool Adafruit_FONA::setFlightMode(bool enable, char *pin, FONAFlashStringPtr apn) {
+  flushInput();
+  if(enable) {
+    FONAFlashStringPtr cfun = F("AT+CFUN=0");
+    DEBUG_PRINT(F("\t---> ")); DEBUG_PRINTLN(cfun);
+    mySerial->println(cfun);
+    //We can expect FONA to send two lines of confirmation: "+CPIN: NOT READY" and "OK", the order of which is arbitrary. We just check for OK, but it might only be the second line to be sent
+    for(int i=0;i<2;i++) {
+      readline(10000);
+      DEBUG_PRINT(F("\t<--- ")); DEBUG_PRINTLN(replybuffer);
+      if (prog_char_strcmp(replybuffer, (prog_char*)ok_reply) == 0) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    FONAFlashStringPtr cfun2 = F("AT+CFUN=1");
+    DEBUG_PRINT(F("\t---> ")); DEBUG_PRINTLN(cfun2);
+    mySerial->println(cfun2);
+    //We expect FONA to answer with "OK". But if SIM PIN still needs to be entered, FONA might first respond with "+CPIN: SIM PIN"
+    bool success = false;
+    for(int j=0;j<2;j++) {
+      readline(10000);
+      DEBUG_PRINT(F("\t<--- ")); DEBUG_PRINTLN(replybuffer);
+      if (prog_char_strcmp(replybuffer, (prog_char*)ok_reply) == 0) {
+        success = true;
+        break;
+      }
+    }
+    if(!success) {return false;}
+    //To be 100% sure that the SIM is unlocked
+    if(sendCheckReply(F("AT+CPIN?"),F("+CPIN: READY"),5000)) {
+      DEBUG_PRINTLN(F("SIM ready"));
+    } else if(prog_char_strcmp(replybuffer, (prog_char*)F("+CPIN: SIM PIN")) == 0) {
+      if(pin == NULL) {return false;}
+      if(unlockSIM(pin)) {
+        delay(10000);
+      } else {return false;}
+    } else {
+      return false;
+    }
+    if(apn == NULL) {return false;}
+    if (!sendCheckReply(F("AT+CGATT=0"), ok_reply, 10000)){ //CGATT is 1 automatically although we didn't enable it
+      return false;
+    }
+    setGPRSNetworkSettings(apn);
+    return true;
+  }
+}
+
+uint8_t Adafruit_FONA::getCellInfo(char *buffer, uint8_t maxbuff) {
+  getReply(F("AT+CENG=3"));
+  mySerial->println(F("AT+CENG?"));
+
+  readline(); //eat +CENG: 1,1
+  readline(2000, true); //multiline
+
+  char *p = prog_char_strstr(replybuffer, (prog_char*)F("+CENG: 0"));
+  if (p == 0) {
+    buffer[0] = 0;
+    return 0;
+  }
+  char *strend = strstr(p, "OK"); //eat OK
+  uint8_t len;
+  if (strend != 0) {
+    len = min(maxbuff-1, strend - p - 2);
+  } else { //OK bereits geschluckt
+    char *strend = strrchr(p, '\n');
+    len = min(maxbuff-1, strend - p);
+  }
+  strncpy(buffer, p, len);
+  buffer[len] = 0;
+  return len;
+
+}
+
+uint8_t Adafruit_FONA::getCellInfo2(char *buffer, uint16_t maxbuff, uint16_t mcc[], uint16_t mnc[], uint16_t lac[], uint16_t cid[], int16_t rxl[], uint16_t arfcn[], uint8_t maxcell) {
+  if (! sendCheckReply(F("AT+CNETSCAN=1"), ok_reply)) {
+    return 0;
+  }
+  flushInput();
+  uint8_t cellidx = 0;
+  uint16_t buffidx = 0;
+  uint16_t timeouttimer = 60000;
+
+  mySerial->println(F("AT+CNETSCAN"));
+  while (timeouttimer-- > 0) {
+    while(mySerial->available()) {
+      timeouttimer = 60000;
+	  char c = mySerial->read();
+	  if(c == 0x0A) { //NL
+        buffer[buffidx] = '\0';
+		//Auswertung
+		if(buffidx == 0) { //Leere Zeile
+          continue;
+		} else if(strcmp(buffer, "OK") == 0) { //Ausgabe beendet.
+			return cellidx;
+		} else { //valid
+		  while (true) {
+			if(cellidx < maxcell) {
+				char *p;
+				p = strtok(buffer,","); //skip Operator
+				if(!p) {break;}
+
+				p = strtok(NULL, ","); //MCC
+				if(!p) {break;}
+				mcc[cellidx] = atoi(p+4);
+
+				p = strtok(NULL, ","); //MNC
+				if(!p) {break;}
+				mnc[cellidx] = atoi(p+4);
+
+				p = strtok(NULL, ","); //RXL
+				if(!p) {break;}
+				rxl[cellidx] = atoi(p+6) - 113;
+
+				p = strtok(NULL, ","); //CID
+				if(!p) {break;}
+				cid[cellidx] = strtol(p+7, NULL, 16);
+
+				p = strtok(NULL, ","); //ARFCN
+				if(!p) {break;}
+				arfcn[cellidx] = atoi(p+6);
+
+				p = strtok(NULL, ","); //LAC
+				if(!p) {break;}
+				lac[cellidx] = strtol(p+4, NULL, 16);
+
+				//p = strtok(NULL, ","); //BSIC
+				//if(!p) {break;}
+
+				cellidx++; //if everything went right
+			}
+			break;
+		  }
+		  buffidx = 0;
+		}
+
+	  } else if(c != 0x0D) { //CR, being ignored
+			if(buffidx > maxbuff-1) {
+				delay(30000);
+				flushInput();
+				return 0;
+			}
+		buffer[buffidx] = c;
+		buffidx++;
+	  }
+	}
+	delay(1);
+  }
+  return 0;
+}
+
 /********* AUDIO *******************************************************/
 
 /**
@@ -888,21 +1041,18 @@ bool Adafruit_FONA::sendSMS(char *smsaddr, char *smsmsg) {
   DEBUG_PRINT(F("> "));
   DEBUG_PRINTLN(smsmsg);
 
-  mySerial->println(smsmsg);
-  mySerial->println();
+  mySerial->print(smsmsg);
   mySerial->write(0x1A);
 
   DEBUG_PRINTLN("^Z");
 
-  if ((_type == FONA3G_A) || (_type == FONA3G_E)) {
-    // Eat two sets of CRLF
-    readline(200);
-    // DEBUG_PRINT("Line 1: "); DEBUG_PRINTLN(strlen(replybuffer));
-    readline(200);
-    // DEBUG_PRINT("Line 2: "); DEBUG_PRINTLN(strlen(replybuffer));
+  for(int j=0;j<60;j++) {
+    replybuffer[0] = 0;
+    readline(1000);
+    if(replybuffer[0] != 0 && replybuffer[0] != '\r' && replybuffer[0] != '>') {
+      break;
+    }
   }
-  readline(10000); // read the +CMGS reply, wait up to 10 seconds!!!
-  // DEBUG_PRINT("Line 3: "); DEBUG_PRINTLN(strlen(replybuffer));
   if (strstr(replybuffer, "+CMGS") == 0) {
     return false;
   }
@@ -1537,6 +1687,91 @@ bool Adafruit_FONA::getGPS(float *lat, float *lon, float *speed_kph,
   return true;
 }
 
+bool Adafruit_FONA::getGPS2(char *timestamp, char *lat, char *lon, float *altitude, float *speed_kph, float *heading) {
+
+  char gpsbuffer[120];
+
+  // we need at least a 2D fix
+  if (GPSstatus() < 2)
+    return false;
+
+  // grab the mode 2^5 gps csv from the sim808
+  uint8_t res_len = getGPS(32, gpsbuffer, 120);
+
+  // make sure we have a response
+  if (res_len == 0)
+    return false;
+
+  if (_type == FONA808_V2) {
+    // Parse 808 V2 response.  See table 2-3 from here for format:
+    // http://www.adafruit.com/datasheets/SIM800%20Series_GNSS_Application%20Note%20V1.00.pdf
+
+    // skip GPS run status
+    char *tok = strtok(gpsbuffer, ",");
+    if (! tok) return false;
+
+    // skip fix status
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+
+    // do not skip date
+    //tok = strtok(NULL, ",");
+    tok = strtok(NULL, ".");
+    if (! tok) return false;
+    strncpy(timestamp, tok, strlen(tok));
+
+    // skip decimal places
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+
+    // grab the latitude
+    //char *latp = strtok(NULL, ",");
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+    strncpy(lat, tok, strlen(tok));
+
+    // grab longitude
+    //char *longp = strtok(NULL, ",");
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+    strncpy(lon, tok, strlen(tok));
+
+    //*lat = atof(latp);
+    //*lon = atof(longp);
+
+    // only grab altitude if needed
+    if (altitude != NULL) {
+      // grab altitude
+      char *altp = strtok(NULL, ",");
+      if (! altp) return false;
+
+      *altitude = atof(altp);
+    }
+
+    // only grab speed if needed
+    if (speed_kph != NULL) {
+      // grab the speed in km/h
+      char *speedp = strtok(NULL, ",");
+      if (! speedp) return false;
+
+      *speed_kph = atof(speedp);
+    }
+
+    // only grab heading if needed
+    if (heading != NULL) {
+
+      // grab the speed in knots
+      char *coursep = strtok(NULL, ",");
+      if (! coursep) return false;
+
+      *heading = atof(coursep);
+    }
+  }
+
+  return true;
+
+}
+
 /**
  * @brief Enable GPS NMEA output
 
@@ -1881,7 +2116,7 @@ bool Adafruit_FONA::TCPconnect(char *server, uint16_t port) {
  * @return true: success, false: failure
  */
 bool Adafruit_FONA::TCPclose(void) {
-  return sendCheckReply(F("AT+CIPCLOSE"), ok_reply);
+  return sendCheckReply(F("AT+CIPCLOSE"), F("CLOSE OK"));
 }
 
 /**
@@ -1890,9 +2125,9 @@ bool Adafruit_FONA::TCPclose(void) {
  * @return true: success, false: failure
  */
 bool Adafruit_FONA::TCPconnected(void) {
-  if (!sendCheckReply(F("AT+CIPSTATUS"), ok_reply, 100))
+  if (!sendCheckReply(F("AT+CIPSTATUS"), ok_reply, 1000))
     return false;
-  readline(100);
+  readline(1000);
 
   DEBUG_PRINT(F("\t<--- "));
   DEBUG_PRINTLN(replybuffer);

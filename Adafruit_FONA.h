@@ -84,6 +84,9 @@ public:
   uint8_t getSIMCCID(char *ccid);
   uint8_t getNetworkStatus(void);
   uint8_t getRSSI(void);
+  bool setFlightMode(bool enable, char *pin = NULL, FONAFlashStringPtr apn = NULL);
+  uint8_t getCellInfo(char *buffer, uint8_t maxbuff);
+  uint8_t getCellInfo2(char *buffer, uint16_t maxbuff, uint16_t mcc[], uint16_t mnc[], uint16_t lac[], uint16_t cid[], int16_t rxl[], uint16_t arfcn[], uint8_t maxcell);
 
   // IMEI
   uint8_t getIMEI(char *imei);
@@ -135,6 +138,7 @@ public:
   uint8_t getGPS(uint8_t arg, char *buffer, uint8_t maxbuff);
   bool getGPS(float *lat, float *lon, float *speed_kph = 0, float *heading = 0,
               float *altitude = 0);
+  bool getGPS2(char *timestamp, char *lat, char *lon, float *altitude=0, float *speed_kph=0, float *heading=0);
   bool enableGPSNMEA(uint8_t enable_value);
 
   // TCP raw connections
