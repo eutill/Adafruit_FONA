@@ -52,6 +52,25 @@
 #define FONA_CALL_RINGING 3
 #define FONA_CALL_INPROGRESS 4
 
+typedef struct {
+  uint16_t mcc;
+  uint16_t mnc;
+  uint16_t lac;
+  uint16_t cid;
+  uint16_t arfcn;
+  int16_t dbm;
+  uint8_t bsic;
+} cellInfo_t;
+
+typedef struct {
+  char timestamp[15];
+  char lat[12];
+  char lon[12];
+  float altitude;
+  float speed_kmh;
+  float heading;
+} gpsInfo_t;
+
 /** Object that controls and keeps state for the FONA module. */
 class Adafruit_FONA : public FONAStreamType {
 public:
@@ -87,6 +106,7 @@ public:
   bool setFlightMode(bool enable, char *pin = NULL, FONAFlashStringPtr apn = NULL);
   uint8_t getCellInfo(char *buffer, uint8_t maxbuff);
   uint8_t getCellInfo2(char *buffer, uint16_t maxbuff, uint16_t mcc[], uint16_t mnc[], uint16_t lac[], uint16_t cid[], int16_t rxl[], uint16_t arfcn[], uint8_t maxcell);
+  uint8_t getCellInfo2(char *buffer, uint16_t maxbuff, cellInfo_t cellInfo[], uint8_t maxcell);
 
   // IMEI
   uint8_t getIMEI(char *imei);
@@ -139,6 +159,7 @@ public:
   bool getGPS(float *lat, float *lon, float *speed_kph = 0, float *heading = 0,
               float *altitude = 0);
   bool getGPS2(char *timestamp, char *lat, char *lon, float *altitude=0, float *speed_kph=0, float *heading=0);
+  bool getGPS2(gpsInfo_t* gpsInfo, char* buffer, uint8_t maxbuff, bool extendedInfo = false);
   bool enableGPSNMEA(uint8_t enable_value);
 
   // TCP raw connections

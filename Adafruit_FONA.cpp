@@ -474,69 +474,148 @@ uint8_t Adafruit_FONA::getCellInfo2(char *buffer, uint16_t maxbuff, uint16_t mcc
   while (timeouttimer-- > 0) {
     while(mySerial->available()) {
       timeouttimer = 60000;
-	  char c = mySerial->read();
-	  if(c == 0x0A) { //NL
+      char c = mySerial->read();
+      if(c == 0x0A) { //NL
         buffer[buffidx] = '\0';
-		//Auswertung
-		if(buffidx == 0) { //Leere Zeile
+        //Auswertung
+        if(buffidx == 0) { //Leere Zeile
           continue;
-		} else if(strcmp(buffer, "OK") == 0) { //Ausgabe beendet.
-			return cellidx;
-		} else { //valid
-		  while (true) {
-			if(cellidx < maxcell) {
-				char *p;
-				p = strtok(buffer,","); //skip Operator
-				if(!p) {break;}
+        } else if(strcmp(buffer, "OK") == 0) { //Ausgabe beendet.
+          return cellidx;
+        } else { //valid
+          while (true) {
+            if(cellidx < maxcell) {
+              char *p;
+              p = strtok(buffer,","); //skip Operator
+              if(!p) {break;}
 
-				p = strtok(NULL, ","); //MCC
-				if(!p) {break;}
-				mcc[cellidx] = atoi(p+4);
+              p = strtok(NULL, ","); //MCC
+              if(!p) {break;}
+              mcc[cellidx] = atoi(p+4);
 
-				p = strtok(NULL, ","); //MNC
-				if(!p) {break;}
-				mnc[cellidx] = atoi(p+4);
+              p = strtok(NULL, ","); //MNC
+              if(!p) {break;}
+              mnc[cellidx] = atoi(p+4);
 
-				p = strtok(NULL, ","); //RXL
-				if(!p) {break;}
-				rxl[cellidx] = atoi(p+6) - 113;
+              p = strtok(NULL, ","); //RXL
+              if(!p) {break;}
+              rxl[cellidx] = atoi(p+6) - 113;
 
-				p = strtok(NULL, ","); //CID
-				if(!p) {break;}
-				cid[cellidx] = strtol(p+7, NULL, 16);
+              p = strtok(NULL, ","); //CID
+              if(!p) {break;}
+              cid[cellidx] = strtol(p+7, NULL, 16);
 
-				p = strtok(NULL, ","); //ARFCN
-				if(!p) {break;}
-				arfcn[cellidx] = atoi(p+6);
+              p = strtok(NULL, ","); //ARFCN
+              if(!p) {break;}
+              arfcn[cellidx] = atoi(p+6);
 
-				p = strtok(NULL, ","); //LAC
-				if(!p) {break;}
-				lac[cellidx] = strtol(p+4, NULL, 16);
+              p = strtok(NULL, ","); //LAC
+              if(!p) {break;}
+              lac[cellidx] = strtol(p+4, NULL, 16);
 
-				//p = strtok(NULL, ","); //BSIC
-				//if(!p) {break;}
+              //p = strtok(NULL, ","); //BSIC
+              //if(!p) {break;}
 
-				cellidx++; //if everything went right
-			}
-			break;
-		  }
-		  buffidx = 0;
-		}
+              cellidx++; //if everything went right
+            }
+            break;
+          }
+          buffidx = 0;
+        }
 
-	  } else if(c != 0x0D) { //CR, being ignored
-			if(buffidx > maxbuff-1) {
-				delay(30000);
-				flushInput();
-				return 0;
-			}
-		buffer[buffidx] = c;
-		buffidx++;
-	  }
-	}
-	delay(1);
+      } else if(c != 0x0D) { //CR, being ignored
+        if(buffidx > maxbuff-1) {
+          delay(30000);
+          flushInput();
+          return 0;
+        }
+        buffer[buffidx] = c;
+        buffidx++;
+      }
+    }
+    delay(1);
   }
   return 0;
 }
+
+uint8_t Adafruit_FONA::getCellInfo2(char *buffer, uint16_t maxbuff, cellInfo_t cellInfo[], uint8_t maxcell) {
+  if (! sendCheckReply(F("AT+CNETSCAN=1"), ok_reply)) {
+    return 0;
+  }
+  flushInput();
+  uint8_t cellidx = 0;
+  uint16_t buffidx = 0;
+  uint16_t timeouttimer = 60000;
+
+  mySerial->println(F("AT+CNETSCAN"));
+  while (timeouttimer-- > 0) {
+    while(mySerial->available()) {
+      timeouttimer = 60000;
+      char c = mySerial->read();
+      if(c == 0x0A) { //NL
+        buffer[buffidx] = '\0';
+        //Auswertung
+        if(buffidx == 0) { //Leere Zeile
+          continue;
+        } else if(strcmp(buffer, "OK") == 0) { //Ausgabe beendet.
+          return cellidx;
+        } else { //valid
+          while (true) {
+            if(cellidx < maxcell) {
+              char *p;
+              p = strtok(buffer,","); //skip Operator
+              if(!p) {break;}
+
+              p = strtok(NULL, ","); //MCC
+              if(!p) {break;}
+              cellInfo[cellidx].mcc = atoi(p+4);
+
+              p = strtok(NULL, ","); //MNC
+              if(!p) {break;}
+              cellInfo[cellidx].mnc = atoi(p+4);
+
+              p = strtok(NULL, ","); //RXL
+              if(!p) {break;}
+              cellInfo[cellidx].dbm = atoi(p+6) - 113; //evtl. invertieren?
+
+              p = strtok(NULL, ","); //CID
+              if(!p) {break;}
+              cellInfo[cellidx].cid = strtol(p+7, NULL, 16);
+
+              p = strtok(NULL, ","); //ARFCN
+              if(!p) {break;}
+              cellInfo[cellidx].arfcn = atoi(p+6);
+
+              p = strtok(NULL, ","); //LAC
+              if(!p) {break;}
+              cellInfo[cellidx].lac = strtol(p+4, NULL, 16);
+
+              p = strtok(NULL, ","); //BSIC
+              if(!p) {break;}
+              cellInfo[cellidx].bsic = strtol(p+5, NULL, 16);
+
+              cellidx++; //if everything went right
+            }
+            break;
+          }
+          buffidx = 0;
+        }
+
+      } else if(c != 0x0D) { //CR, being ignored
+        if(buffidx > maxbuff-1) {
+          delay(30000);
+          flushInput();
+          return 0;
+        }
+        buffer[buffidx] = c;
+        buffidx++;
+      }
+    }
+    delay(1);
+  }
+  return 0;
+}
+
 
 /********* AUDIO *******************************************************/
 
@@ -1770,6 +1849,74 @@ bool Adafruit_FONA::getGPS2(char *timestamp, char *lat, char *lon, float *altitu
 
   return true;
 
+}
+
+bool Adafruit_FONA::getGPS2(gpsInfo_t* gpsInfo, char* buffer, uint8_t maxbuff, bool extendedInfo) {
+  // we need at least a 2D fix
+  if (GPSstatus() < 2)
+    return false;
+
+  // grab the mode 2^5 gps csv from the sim808
+  uint8_t res_len = getGPS(32, buffer, maxbuff);
+
+  // make sure we have a response
+  if (res_len == 0)
+    return false;
+
+  if (_type == FONA808_V2) {
+    // Parse 808 V2 response.  See table 2-3 from here for format:
+    // http://www.adafruit.com/datasheets/SIM800%20Series_GNSS_Application%20Note%20V1.00.pdf
+
+    // skip GPS run status
+    char *tok = strtok(buffer, ",");
+    if (! tok) return false;
+
+    // skip fix status
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+
+    // do not skip date
+    //tok = strtok(NULL, ",");
+    tok = strtok(NULL, ".");
+    if (! tok) return false;
+    strncpy(gpsInfo->timestamp, tok, strlen(tok));
+
+    // skip decimal places
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+
+    // grab the latitude
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+    strncpy(gpsInfo->lat, tok, strlen(tok));
+
+    // grab longitude
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+    strncpy(gpsInfo->lon, tok, strlen(tok));
+
+    // only grab altitude, speed and heading if requested
+    if (extendedInfo) {
+      // grab altitude
+      tok = strtok(NULL, ",");
+      if (! tok) return false;
+      gpsInfo->altitude = atof(tok);
+
+      // grab the speed in km/h
+      tok = strtok(NULL, ",");
+      if (! tok) return false;
+      gpsInfo->speed_kmh = atof(tok);
+
+      // grab the heading
+      tok = strtok(NULL, ",");
+      if (! tok) return false;
+      gpsInfo->heading = atof(tok);
+    }
+
+    return true;
+  } else {
+    return false;
+  }
 }
 
 /**
