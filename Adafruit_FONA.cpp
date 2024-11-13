@@ -1852,10 +1852,6 @@ bool Adafruit_FONA::getGPS2(char *timestamp, char *lat, char *lon, float *altitu
 }
 
 bool Adafruit_FONA::getGPS2(gpsInfo_t* gpsInfo, char* buffer, uint8_t maxbuff, bool extendedInfo) {
-  // we need at least a 2D fix
-  if (GPSstatus() < 2)
-    return false;
-
   // grab the mode 2^5 gps csv from the sim808
   uint8_t res_len = getGPS(32, buffer, maxbuff);
 
@@ -1871,9 +1867,11 @@ bool Adafruit_FONA::getGPS2(gpsInfo_t* gpsInfo, char* buffer, uint8_t maxbuff, b
     char *tok = strtok(buffer, ",");
     if (! tok) return false;
 
-    // skip fix status
+    // don't skip fix status
     tok = strtok(NULL, ",");
     if (! tok) return false;
+    if(*(tok-2) != '1') return false; //make sure GPS is turned on
+    if(!(strlen(tok) == 1 && tok[0] == '1')) return false; //make sure we have a fix
 
     // do not skip date
     //tok = strtok(NULL, ",");
@@ -1895,13 +1893,13 @@ bool Adafruit_FONA::getGPS2(gpsInfo_t* gpsInfo, char* buffer, uint8_t maxbuff, b
     if (! tok) return false;
     strncpy(gpsInfo->lon, tok, strlen(tok));
 
-    // only grab altitude, speed and heading if requested
-    if (extendedInfo) {
-      // grab altitude
-      tok = strtok(NULL, ",");
-      if (! tok) return false;
-      gpsInfo->altitude = atof(tok);
+    // grab altitude
+    tok = strtok(NULL, ",");
+    if (! tok) return false;
+    strncpy(gpsInfo->altitude, tok, strlen(tok));
 
+    // only grab speed and heading if requested
+    if (extendedInfo) {
       // grab the speed in km/h
       tok = strtok(NULL, ",");
       if (! tok) return false;

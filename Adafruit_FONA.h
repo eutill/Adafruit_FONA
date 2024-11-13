@@ -66,7 +66,7 @@ typedef struct {
   char timestamp[15];
   char lat[12];
   char lon[12];
-  float altitude;
+  char altitude[9];
   float speed_kmh;
   float heading;
 } gpsInfo_t;
